@@ -59,36 +59,49 @@ def create_sliding_windows_first_dim(data: np.ndarray, sequence_length: int) -> 
     return np.stack(windows)
 
 
-def get_welding_data(path: Path, n_samples: int | None = None, return_sequences: bool = False,
-                     sequence_length: int = 100) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Load welding data from CSV or cached numpy files.
-    """
-    features_cache = path.with_suffix('.features.npy')
-    labels_cache = path.with_suffix('.labels.npy')
-    exp_ids_cache = path.with_suffix('.exp_ids.npy')
+def convert_to_np(data: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    voltages_names = data.columns[data.columns.str.startswith('V')]
+    current_names = data.columns[data.columns.str.startswith('I')]
 
-    if features_cache.exists() and labels_cache.exists() and exp_ids_cache.exists():
-        data_np = np.load(features_cache)
-        labels = np.load(labels_cache)
-        exp_ids = np.load(exp_ids_cache)
-    else:
-        data = load_data(path)
-        labels, exp_ids, data_np = convert_to_np(data)
-        np.save(features_cache, data_np)
-        np.save(labels_cache, labels)
-        np.save(exp_ids_cache, exp_ids)
+    # Prüfe jede Spalte mit versuchter Konvertierung zu float
+    for col in voltages_names.union(current_names):
+        try:
+            _ = data[col].astype(float)
+        except ValueError as e:
+            raise ValueError(f"Non-numeric data found in column '{col}': {e}")
 
-    if n_samples is not None:
-        indices = np.random.choice(len(data_np), n_samples, replace=False)
-        data_np = data_np[indices]
-        labels = labels[indices]
-        exp_ids = exp_ids[indices]
+    voltage_data = data[voltages_names].astype(float).to_numpy()
+    current_data = data[current_names].astype(float).to_numpy()
+    labels = data['labels'].to_numpy()
+    experiment_ids = data['exp_ids'].to_numpy()
 
-    if return_sequences:
-        data_np = data_np.reshape(-1, 1, data_np.shape[1])  # Reshape to (samples, timesteps=1, features)
-        data_np = create_sliding_windows_first_dim(data_np, sequence_length)
-        labels = labels[sequence_length - 1:]
-        exp_ids = exp_ids[sequence_length - 1:]
+    if voltage_data.shape != current_data.shape:
+        raise ValueError(f"Voltage and current data have mismatched shapes: {voltage_data.shape} vs {current_data.shape}")
 
-    return data_np, labels, exp_ids
+    data_combined = np.stack([current_data, voltage_data], axis=2)
+
+    return labels, experiment_ids, data_combined
+
+
+def convert_to_np(data: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    voltages_names = data.columns[data.columns.str.startswith('V')]
+    current_names = data.columns[data.columns.str.startswith('I')]
+
+    # Prüfe jede Spalte mit versuchter Konvertierung zu float
+    for col in voltages_names.union(current_names):
+        try:
+            _ = data[col].astype(float)
+        except ValueError as e:
+            raise ValueError(f"Non-numeric data found in column '{col}': {e}")
+
+    voltage_data = data[voltages_names].astype(float).to_numpy()
+    current_data = data[current_names].astype(float).to_numpy()
+    labels = data['labels'].to_numpy()
+    experiment_ids = data['exp_ids'].to_numpy()
+
+    if voltage_data.shape != current_data.shape:
+        raise ValueError(f"Voltage and current data have mismatched shapes: {voltage_data.shape} vs {current_data.shape}")
+
+    data_combined = np.stack([current_data, voltage_data], axis=2)
+
+    return labels, experiment_ids, data_combined
