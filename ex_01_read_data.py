@@ -33,12 +33,12 @@ def convert_to_np(data: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarra
     voltages_names = data.columns[data.columns.str.startswith('V')]  # alle Voltages namen holen
     current_names = data.columns[data.columns.str.startswith('I')]  # alle Currents namen holen
 
-    # Umwandlung aller daten in Numpy arrays
+    # Convert to numpy Arrays
     voltage_data = data[voltages_names].to_numpy()
     current_data = data[current_names].to_numpy()
     labels = data['labels'].to_numpy()
     experiment_ids = data['exp_ids'].to_numpy()
-    # zusammenfügen von den current und voltage data
+
     data = np.stack([current_data, voltage_data], axis=2)
     return labels, experiment_ids, data
 
@@ -58,22 +58,6 @@ def create_sliding_windows_first_dim(data: np.ndarray, sequence_length: int) -> 
 
 def get_welding_data(path: Path, n_samples: int | None = None, return_sequences: bool = False,
                      sequence_length: int = 100) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Load welding data from CSV or cached numpy files.
-
-    Args:
-        path (Path): Path to the CSV data file.
-        n_samples (int | None): Number of samples to sample from the data. If None, all data is returned.
-        return_sequences (bool): If True, return sequences of length `sequence_length`.
-        sequence_length (int): Length of sequences to return.
-
-    Returns:
-        tuple: (features, labels, exp_ids), where:
-            - features: np.ndarray of shape (n_samples, timesteps, 2) if return_sequences else (n_samples, n_features)
-            - labels: np.ndarray
-            - exp_ids: np.ndarray
-    """
-
     # Define cache file paths
     base_path = path.parent
     features_cache = base_path / "features.npy"
@@ -94,7 +78,7 @@ def get_welding_data(path: Path, n_samples: int | None = None, return_sequences:
         np.save(labels_cache, labels)
         np.save(exp_ids_cache, exp_ids)
 
-    # Optional sampling
+    # Sampling
     if n_samples is not None and n_samples < len(features):
         indices = np.random.choice(len(features), n_samples, replace=False)
         features = features[indices]
