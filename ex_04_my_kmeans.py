@@ -28,91 +28,85 @@ class MyKMeans:
         self.init_method: INIT_METHOD = init_method
 
     def fit(self, x: np.ndarray | pd.DataFrame):
-        """
-        Fit the K-means model to the data.
-        
-        Args:
-            x (np.ndarray | pd.DataFrame): Training data of shape (n_samples, n_features).
-        
-        Returns:
-            MyKMeans: Fitted estimator instance.
-        """
         if isinstance(x, pd.DataFrame):
             x = x.to_numpy()
-        elif isinstance(x, np.ndarray):
-            pass
-        else:
-            raise ValueError("Input data must be a numpy array or a pandas DataFrame")
-        
-        # Code here
-        
+
+        n_samples = x.shape[0]
+        self.centroids = self._initialize_centroids(x)
+
+        for i in range(self.max_iter):
+            # Schritt 1: Clusterzuweisung
+            distances = self._compute_distance(x, self.centroids)
+            labels = np.argmin(distances, axis=1)
+
+            # Schritt 2: Zentroiden aktualisieren
+            new_centroids = []
+            for j in range(self.k):
+                members = x[labels == j]
+                if len(members) == 0:
+                    # Leerer Cluster: zufällig neuen Punkt wählen
+                    new_centroid = x[np.random.randint(0, n_samples)]
+                else:
+                    new_centroid = np.mean(members, axis=0)
+                new_centroids.append(new_centroid)
+            new_centroids = np.array(new_centroids)
+
+            # Prüfen auf Konvergenz
+            if np.allclose(self.centroids, new_centroids):
+                break
+
+            self.centroids = new_centroids
+
+        # Inertia berechnen
+        self.inertia_ = np.sum(np.min(self._compute_distance(x, self.centroids), axis=1))
         return self
-    
 
-    def fit_predict(self, x: np.ndarray):
-        """
-        Fit the K-means model to the data and return the predicted labels.
-        """
-        if isinstance(x, pd.DataFrame):
-            x = x.values
-        elif isinstance(x, np.ndarray):
-            pass
-        else:
-            raise ValueError("Input data must be a numpy array or a pandas DataFrame")
-        self.fit(x)
-        return self.predict(x)
-
-    def predict(self, x: np.ndarray):
-        """
-        Predict the closest cluster for each sample in x.
-        
-        Args:
-            x (np.ndarray): New data to predict, of shape (n_samples, n_features).
-            
-        Returns:
-            np.ndarray: Index of the cluster each sample belongs to.
-        """
-        # Compute distances between samples and centroids
-        distances = self._compute_distance(x, self.centroids)
-        
-        # Return the index of the closest centroid for each sample
-        return np.argmin(distances, axis=1)
 
     def _initialize_centroids(self, x: np.ndarray) -> np.ndarray:
-        """
-        Initialize centroids using the kmeans++ method.
-        
-        Args:
-            x (np.ndarray): Training data.
-            
-        Returns:
-            np.ndarray: Initial centroids.
-        """
-        pass
+        n_samples = x.shape[0]
+        if self.init_method == "random":
+            indices = np.random.choice(n_samples, self.k, replace=False)
+            return x[indices]
+        elif self.init_method == "kmeans++":
+            centroids = []
+            # Wähle ersten Zentroid zufällig
+            centroids.append(x[np.random.randint(n_samples)])
+
+            for _ in range(1, self.k):
+                distances = np.min(self._compute_distance(x, np.array(centroids)), axis=1)
+                probs = distances / distances.sum()
+                next_centroid = x[np.random.choice(n_samples, p=probs)]
+                centroids.append(next_centroid)
+            return np.array(centroids)
+        else:
+            raise ValueError(f"Unknown init_method: {self.init_method}")
+
 
     def _compute_distance(self, x: np.ndarray, centroids: np.ndarray) -> np.ndarray:
-        """
-        Compute the distance between samples and centroids.
-        
-        Args:
-            x (np.ndarray): Data points of shape (n_samples, n_features) or (n_samples, time_steps, n_features).
-            centroids (np.ndarray): Centroids of shape (k, n_features) or (k, time_steps, n_features).
-            
-        Returns:
-            np.ndarray: Distances between each sample and each centroid, shape (n_samples, k).
-        """
-        pass
+        if self.distance_metric == "euclidean":
+            return np.linalg.norm(x[:, np.newaxis] - centroids, axis=2)
+        elif self.distance_metric == "manhattan":
+            return np.sum(np.abs(x[:, np.newaxis] - centroids), axis=2)
+        elif self.distance_metric == "dtw":
+            return self._dtw(x, centroids)
+        else:
+            raise ValueError(f"Unsupported distance metric: {self.distance_metric}")
 
 
     def _dtw(self, x: np.ndarray, centroids: np.ndarray) -> np.ndarray:
-        """
-        Simplified DTW distance computation using dtaidistance.
-        
-        Args:
-            x (np.ndarray): Data points of shape (n_samples, time_steps, n_features) or (n_samples, n_features)
-            centroids (np.ndarray): Centroids of shape (k, time_steps, n_features) or (k, n_features)
-            
-        Returns:
-            np.ndarray: DTW distances between each sample and each centroid, shape (n_samples, k).
-        """
-        pass
+        n_samples = x.shape[0]
+        k = centroids.shape[0]
+        distances = np.zeros((n_samples, k))
+
+        for i in tqdm(range(n_samples), desc="DTW Distance"):
+            for j in range(k):
+                xi = x[i]
+                cj = centroids[j]
+                # Falls Daten mehrdimensional sind, mitteln über Achsen
+                if xi.ndim == 2:
+                    d = np.mean([dtw.distance(xi[:, d], cj[:, d]) for d in range(xi.shape[1])])
+                else:
+                    d = dtw.distance(xi, cj)
+                distances[i, j] = d
+
+        return distances
