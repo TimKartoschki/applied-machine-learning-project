@@ -8,13 +8,14 @@ class MyKMeans:
         self.max_iter = max_iter
         self.distance_metric = distance_metric
         self.centroids = None
-        self.inertia_ = None  # Initialisiert zur Fehlervermeidung
+        self.inertia_ = None
 
     def _validate_input(self, x):
         if not isinstance(x, (np.ndarray, pd.DataFrame)):
             raise ValueError("Input data must be a numpy array or a pandas DataFrame")
         if isinstance(x, pd.DataFrame):
-            x = x.to_numpy()
+            x = x.to_numpy(dtype=np.float64)
+        x = np.asarray(x, dtype=np.float64)  # Stelle sicher, dass die Daten keine 'object'-Arrays sind
         if x.ndim not in {2, 3}:
             raise ValueError("Input data must be a 2D or 3D array")
         return x
@@ -24,46 +25,62 @@ class MyKMeans:
         return x[np.random.choice(n_samples, self.k, replace=False)]
 
     def _compute_distance(self, x, centroids):
+        x = np.asarray(x, dtype=np.float64)
+        centroids = np.asarray(centroids, dtype=np.float64)
+
         if self.distance_metric == "euclidean":
             return np.linalg.norm(x[:, np.newaxis] - centroids, axis=-1)
         elif self.distance_metric == "manhattan":
             return np.abs(x[:, np.newaxis] - centroids).sum(axis=-1)
         elif self.distance_metric == "dtw":
-            return np.array([
-                [dtw.distance(np.squeeze(x_i), np.squeeze(c_i)) for c_i in centroids]
-                for x_i in x
-            ])
+            return np.array([[dtw.distance(np.squeeze(x_i), np.squeeze(c_i)) for c_i in centroids] for x_i in x], dtype=np.float64)
         else:
             raise ValueError("Ungültige Distanzmetrik angegeben.")
 
     def fit(self, x):
         x = self._validate_input(x)
-        self.centroids = self._initialize_centroids(x)
+
+        if x.ndim == 3:  # Falls Sequenzen unterschiedlich lang sind, angleichen
+            max_length = max(seq.shape[0] for seq in x)
+            padded_x = np.array([
+                np.pad(seq, ((0, max_length - seq.shape[0]), (0, 0)), 'constant') if seq.shape[0] < max_length else seq
+                for seq in x
+            ], dtype=np.float64)
+        else:
+            padded_x = x
+
+        self.centroids = self._initialize_centroids(padded_x)
 
         for _ in range(self.max_iter):
-            distances = self._compute_distance(x, self.centroids)
+            distances = self._compute_distance(padded_x, self.centroids)
             labels = np.argmin(distances, axis=1)
 
             new_centroids = np.array([
-                np.mean(x[labels == i], axis=0) if np.any(labels == i) else self.centroids[i]
+                np.mean(padded_x[labels == i], axis=0) if np.any(labels == i) else self.centroids[i]
                 for i in range(self.k)
-            ])
+            ], dtype=np.float64)
 
-            if np.all(self.centroids == new_centroids):
+            if np.allclose(self.centroids, new_centroids):  # Korrekte Überprüfung auf Konvergenz
                 break
 
             self.centroids = new_centroids
 
-        self.inertia_ = np.sum([
-            np.sum((x[labels == i] - self.centroids[i]) ** 2) for i in range(self.k)
-        ])
+        self.inertia_ = np.sum([np.sum((padded_x[labels == i] - self.centroids[i]) ** 2) for i in range(self.k)])
 
     def predict(self, x):
         x = self._validate_input(x)
         distances = self._compute_distance(x, self.centroids)
         return np.argmin(distances, axis=1)
 
-    def fit_predict(self, x):
-        """Neue Methode zur Kombination von fit() und predict()"""
+    def fit_predict(self, x: np.ndarray):
+        """
+        Fit the K-means model to the data and return the predicted labels.
+        """
+        if isinstance(x, pd.DataFrame):
+            x = x.values
+        elif isinstance(x, np.ndarray):
+            pass
+        else:
+            raise ValueError("Input data must be a numpy array or a pandas DataFrame")
         self.fit(x)
         return self.predict(x)
