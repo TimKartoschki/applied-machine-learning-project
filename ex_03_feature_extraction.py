@@ -38,8 +38,6 @@ def extract_features(data: np.ndarray, labels: np.ndarray) -> pd.DataFrame:
     Returns:
         pd.DataFrame: Features as DataFrame
     """
-    import scipy.stats as stats
-
     n_samples = data.shape[0]
     features = []
 
@@ -53,8 +51,8 @@ def extract_features(data: np.ndarray, labels: np.ndarray) -> pd.DataFrame:
             "volt_std": np.std(voltage),
             "volt_max": np.max(voltage),
             "volt_min": np.min(voltage),
-            "volt_skew": stats.skew(voltage),
-            "volt_kurt": stats.kurtosis(voltage),
+            "volt_skew": pd.Series(voltage).skew,
+            "volt_kurt": pd.Series(voltage).kurt,
             "volt_median": np.median(voltage),
             "volt_range": np.ptp(voltage),
             "volt_energy": np.sum(voltage**2),
@@ -65,8 +63,8 @@ def extract_features(data: np.ndarray, labels: np.ndarray) -> pd.DataFrame:
             "curr_std": np.std(current),
             "curr_max": np.max(current),
             "curr_min": np.min(current),
-            "curr_skew": stats.skew(current),
-            "curr_kurt": stats.kurtosis(current),
+            "curr_skew": pd.Series(current).skew,
+            "curr_kurt": pd.Series(current).kurt,
             "curr_median": np.median(current),
             "curr_range": np.ptp(current),
             "curr_energy": np.sum(current**2),
