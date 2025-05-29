@@ -1,86 +1,69 @@
-from typing import Literal
 import numpy as np
-import logging
-from tqdm import tqdm
-from dtaidistance import dtw
-
-DISTANCE_METRICS = Literal["euclidean", "manhattan", "dtw"]
-INIT_METHOD = Literal["random", "kmeans++"]
-
-logging.basicConfig(level=logging.INFO)
+import pandas as pd
+import dtaidistance.dtw as dtw
 
 class MyKMeans:
-    def __init__(self, k=3, max_iter=100, distance_metric: DISTANCE_METRICS = "euclidean", init: INIT_METHOD = "kmeans++", random_state=None):
+    def __init__(self, k=3, max_iter=100, distance_metric="euclidean"):
         self.k = k
         self.max_iter = max_iter
         self.distance_metric = distance_metric
-        self.init = init
         self.centroids = None
-        self.random_state = random_state
-        if random_state is not None:
-            np.random.seed(random_state)
+        self.inertia_ = None  # Initialisiert zur Fehlervermeidung
 
-    def fit(self, x: np.ndarray):
+    def _validate_input(self, x):
+        if not isinstance(x, (np.ndarray, pd.DataFrame)):
+            raise ValueError("Input data must be a numpy array or a pandas DataFrame")
+        if isinstance(x, pd.DataFrame):
+            x = x.to_numpy()
+        if x.ndim not in {2, 3}:
+            raise ValueError("Input data must be a 2D or 3D array")
+        return x
+
+    def _initialize_centroids(self, x):
+        n_samples = x.shape[0]
+        return x[np.random.choice(n_samples, self.k, replace=False)]
+
+    def _compute_distance(self, x, centroids):
+        if self.distance_metric == "euclidean":
+            return np.linalg.norm(x[:, np.newaxis] - centroids, axis=-1)
+        elif self.distance_metric == "manhattan":
+            return np.abs(x[:, np.newaxis] - centroids).sum(axis=-1)
+        elif self.distance_metric == "dtw":
+            return np.array([
+                [dtw.distance(np.squeeze(x_i), np.squeeze(c_i)) for c_i in centroids]
+                for x_i in x
+            ])
+        else:
+            raise ValueError("Ungültige Distanzmetrik angegeben.")
+
+    def fit(self, x):
+        x = self._validate_input(x)
         self.centroids = self._initialize_centroids(x)
-        for _ in tqdm(range(self.max_iter), desc="KMeans Iterations"):
-            labels = self.predict(x)
 
-            new_centroids = []
-            for i in range(self.k):
-                cluster_points = x[labels == i]
-                if len(cluster_points) == 0:
-                    # Neu initialisieren, falls ein Cluster leer ist
-                    new_centroids.append(x[np.random.choice(x.shape[0])])
-                    continue
+        for _ in range(self.max_iter):
+            distances = self._compute_distance(x, self.centroids)
+            labels = np.argmin(distances, axis=1)
 
-                if self.distance_metric == "dtw":
-                    # DTW-Median als "zentralste" Serie
-                    dists = np.array([[dtw.distance(s1, s2) for s2 in cluster_points] for s1 in cluster_points])
-                    total_dists = dists.sum(axis=1)
-                    new_centroids.append(cluster_points[np.argmin(total_dists)])
-                else:
-                    new_centroids.append(np.mean(cluster_points, axis=0))
+            new_centroids = np.array([
+                np.mean(x[labels == i], axis=0) if np.any(labels == i) else self.centroids[i]
+                for i in range(self.k)
+            ])
 
-            new_centroids = np.array(new_centroids)
-            if np.allclose(self.centroids, new_centroids):
-                break  # Konvergenz
+            if np.all(self.centroids == new_centroids):
+                break
+
             self.centroids = new_centroids
 
-    def predict(self, x: np.ndarray):
-        labels = []
-        for xi in x:
-            distances = [self._compute_distance(xi, centroid) for centroid in self.centroids]
-            labels.append(np.argmin(distances))
-        return np.array(labels)
+        self.inertia_ = np.sum([
+            np.sum((x[labels == i] - self.centroids[i]) ** 2) for i in range(self.k)
+        ])
 
-    def fit_predict(self, x: np.ndarray):
+    def predict(self, x):
+        x = self._validate_input(x)
+        distances = self._compute_distance(x, self.centroids)
+        return np.argmin(distances, axis=1)
+
+    def fit_predict(self, x):
+        """Neue Methode zur Kombination von fit() und predict()"""
         self.fit(x)
         return self.predict(x)
-
-    def _initialize_centroids(self, x: np.ndarray):
-        n_samples = x.shape[0]
-        if self.init == "random":
-            indices = np.random.choice(n_samples, self.k, replace=False)
-            return x[indices]
-
-        # kmeans++ Initialisierung
-        centroids = [x[np.random.choice(n_samples)]]
-        for _ in range(1, self.k):
-            distances = np.array([
-                min([self._compute_distance(xi, c) for c in centroids]) for xi in x
-            ])
-            probs = distances ** 2
-            probs = probs / probs.sum()
-            next_centroid = x[np.random.choice(n_samples, p=probs)]
-            centroids.append(next_centroid)
-        return np.array(centroids)
-
-    def _compute_distance(self, a, b):
-        if self.distance_metric == "euclidean":
-            return np.linalg.norm(a - b)
-        elif self.distance_metric == "manhattan":
-            return np.sum(np.abs(a - b))
-        elif self.distance_metric == "dtw":
-            return dtw.distance(a, b)
-        else:
-            raise ValueError(f"Unknown distance metric: {self.distance_metric}")
